@@ -1,0 +1,15 @@
+Considering liveness, when first fitting the IoT to a machine & trackings its data, when do we need to train the model? 
+In the first 1250 datapoints, the machine is totally healthy so, when using binary clustering, the clusterer will segment data that is both healthy, just small fluctuations. So, the clusters spread tells us more truth about the "degradation" onset. so we know when to begin training our model
+
+
+720 datapoints - spread is: c0 = 0.003, c1=0.002 (Fully Healthy)
+1000 datapoints - spread is: c0 = 0.003, c1=0.002 (Fully Healthy)
+1250 datapoints - spread is: c0 = 0.002, c1=0.003 (Fully Healthy)
+1500 datapoints - spread is: c0 = 0.002, c1=0.003 (Fully Healthy)
+1750 datapoints - spread is: c0 = 0.002, c1=0.003 (Fully Healthy)
+
+
+Windowing Check - to find beginning of distruptive activities
+
+2000 Datapoints features difference (last previous ten datapoints from rest):
+[('rms', 1.389324136943621), ('std', 2.1838165885652323), ('ptp', 2.540029290400565), ('kurtosis', 1.5249051642967435), ('skew', -0.47670451550571113), ('crest', 2.312261980089424), ('spectral_centroid', -1.4167219355134544), ('spectral_bandwidth', -2.1269099680421957), ('spectral_total', 2.3800947627395024), ('spectral_entropy', -0.6689102768479513)]
