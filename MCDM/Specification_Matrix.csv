@@ -1,0 +1,16 @@
+_,Candidate,Weight,Autosen AV001,Vutlan VT540,Strainsense Triaxial DC Accel,KEMET VS-BV203-B,Witmotion WTVB01-485,Witmotion WTVB02-485,VKV022,RS PRO Industrial Vibration Sensor,AC298,MMA8451
+_,Manufacturer,_,autosen,Vutlan,Strainsense,KEMET,Witmotion,Witmotion,IFM,RS PRO,CTC,ADAFRUIT
+Cost,Freq Range Lowest (Hz),0.084,10,0,0,10,5,5,10,10,10,10
+Benefit,Freq Range Highest (Hz),0.084,1000,0,200,15000,1000,2000,1000,1000,2000,800
+Cost, Operating Temp Lowest (C),0.05,-30.00,-10,-20,-25,-40,-40,-25,-40,-40,-10
+Benefit,Operating Temp Highest (C),0.05,135,80,80,85,85,85,80,85,80,80
+Benefit,IP Solid Channel,0.084,6,2,6,2,6,6,6,6,6,1
+Benefit,IP Liquid Channel,0.084,8,0,7,0,8,8,7,5,7,0
+Cost,Approx price (£),0.065,185,29,180,137,37,50,217,243,120,6
+Benefit,CE Compliance,0.083,1,1,0,0,1,1,0,1,0,1
+Benefit,RoHS Compliance,0.083,0,1,1,1,0,0,1,1,0,1
+Benefit,OEM Supplies Manual,0.083,1,1,1,1,1,1,0,1,1,1
+Benefit,OEM Multi-language support,0.083,1,1,0,0,1,1,1,1,1,1
+Benefit,OEM Offers Post-sale support,0.083,1,1,0,0,1,1,0,1,1,1
+Benefit,Ease of configuration,0.084,2,1,3,1,3,3,1,1,1,3
+Benefit,Features Count,0.088,1,0,1,11,2,2,1,1,1,11
