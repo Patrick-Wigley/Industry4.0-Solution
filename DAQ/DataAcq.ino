@@ -1,5 +1,19 @@
 #define DEBUG 0
 
+#include <WiFi.h>
+#include "WiFiGeneric.h"
+#include <WiFiClient.h>
+#include "ThingSpeak.h"
+WiFiClient client;
+
+// WIFi Parameters
+const char* SSID = "";
+const char* LAN_PASSWORD = "";
+// Thing Speak Parameters
+const unsigned long ChannelNumber1 = 0000000;
+const char* API_KEY = "";
+
+
 #include <Wire.h>
 #include <Adafruit_MMA8451.h>
 #include <arduinoFFT.h>
@@ -9,7 +23,7 @@ Adafruit_MMA8451 mma = Adafruit_MMA8451();
 
 // FFT Configuration
 const uint16_t TIME_SAMPLES = 800;
-const double   SAMPLING_FREQ = 800;         // MMA running at highest (800Hz)
+const double   SAMPLING_FREQ = 800;       // MMA running at highest (800Hz)
 const uint16_t FREQ_SAMPLES = 512;        // These must be a power of 2
 const uint16_t FREQ_BINS_N  = (int)(FREQ_SAMPLES / 2);
 
@@ -24,14 +38,36 @@ float vReal[FREQ_SAMPLES];
 float vImag[FREQ_SAMPLES];
 
 
-
 // FFT object
 ArduinoFFT<float> FFT = ArduinoFFT<float>(vReal, vImag, FREQ_SAMPLES, SAMPLING_FREQ);
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial); 
+  //  while (!Serial); 
+  pinMode(2, OUTPUT);
 
+  // WiFi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, LAN_PASSWORD);
+
+  // Wait for WiFi connections
+  int connection_attempts = 0;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    if (connection_attempts > 30){
+      // WiFi is most-likely turned off. 
+      Serial.println("[ESP32]: WiFi not on? Beginning Long-Sleep (10min)");
+      esp_sleep_enable_timer_wakeup(10*(60 * 1000000));
+      esp_deep_sleep_start();
+    }
+    connection_attempts++;
+    delay(1000);
+  } 
+  ThingSpeak.begin(client);
+
+  digitalWrite(2, HIGH);
+
+  // Accelerometer
   if (!mma.begin()) {
     Serial.println("Could not start MMA8451");
     while (1);
@@ -40,6 +76,7 @@ void setup() {
   mma.setRange(MMA8451_RANGE_2_G);
   mma.setDataRate(MMA8451_DATARATE_800_HZ);
   Serial.println("MMA8451 Found. Starting Sampling...");
+  delay(2000);
 }
 
 void loop() {
@@ -63,22 +100,42 @@ void loop() {
   float sen = spectral_entropy();
   float spf = spectral_peak(); 
 
-  
-  Serial.println();
-  Serial.print("rms  : "); Serial.println(rms);
-  Serial.print("std  : "); Serial.println(std);
-  Serial.print("skew : "); Serial.println(skew);
-  Serial.print("kurt : "); Serial.println(kurt);
-  Serial.print("ptp  : "); Serial.println(ptp);
-  Serial.print("cf   : "); Serial.println(cf);
-  Serial.print("sc   : "); Serial.println(sc);
-  Serial.print("ss   : "); Serial.println(ss);
-  Serial.print("se   : "); Serial.println(se);
-  Serial.print("sen  : "); Serial.println(sen);
-  Serial.print("spf  : "); Serial.println(spf);
+  if (DEBUG) {
+    Serial.println();
+    Serial.print("rms  : "); Serial.println(rms);
+    Serial.print("std  : "); Serial.println(std);
+    Serial.print("skew : "); Serial.println(skew);
+    Serial.print("kurt : "); Serial.println(kurt);
+    Serial.print("ptp  : "); Serial.println(ptp);
+    Serial.print("cf   : "); Serial.println(cf);
+    Serial.print("sc   : "); Serial.println(sc);
+    Serial.print("ss   : "); Serial.println(ss);
+    Serial.print("se   : "); Serial.println(se);
+    Serial.print("sen  : "); Serial.println(sen);
+    Serial.print("spf  : "); Serial.println(spf);
 
-  Serial.println("---------------------------------");
-  delay(10000); // Go to sleep or 10 mins
+    Serial.println("---------------------------------");
+  }
+  else if (WiFi.isConnected()) {
+    // Send to Thingspeak Channel(s)
+    ThingSpeak.setField(1, rms);
+    ThingSpeak.setField(2, kurt);
+    ThingSpeak.setField(3, skew);
+    ThingSpeak.setField(4, sen);
+    ThingSpeak.setField(5, se);
+    ThingSpeak.setField(6, sc);
+    ThingSpeak.setField(7, cf);
+    ThingSpeak.setField(8, std);
+
+    ThingSpeak.writeFields(ChannelNumber1, API_KEY);
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  digitalWrite(2, LOW);
+  esp_sleep_enable_timer_wakeup(10*(60 * 1000000));
+  esp_deep_sleep_start(); // Go to sleep or 10 mins
 }
 
 
@@ -109,7 +166,8 @@ void data_acq() {
     // Wait for the next 800Hz sample period (1250 microseconds)
     while(micros() - microPeriod < (1000000 / SAMPLING_FREQ)); 
   }
-
+  
+  // First reading is always errornous
   vReal[0] = 0;
 
   // 2. PRE-PROCESSING (Remove DC Offset / Gravity)
@@ -134,7 +192,6 @@ void data_acq() {
   }
 
   // Set Frequencies & Magnitude vectors
-
   for (int i = 0; i < (FREQ_BINS_N); i++) {
     // Freq Bin Formula: Index * SamplingFrequency / TotalFREQ_Samples
     float freq = (i * SAMPLING_FREQ) / FREQ_SAMPLES;
