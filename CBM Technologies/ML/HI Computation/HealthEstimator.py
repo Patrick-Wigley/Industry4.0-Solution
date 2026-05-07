@@ -1,7 +1,9 @@
 import os
+import tensorflow as tf
 from tensorflow import keras
 from keras import Sequential
 from keras.layers import LSTM, RepeatVector, TimeDistributed, Dense
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import numpy as np
@@ -9,13 +11,15 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 # From external dataset (DEBUGGING)
-from DatasetCollection import feature_extraction, feature_standardise
+from DatasetCollection import feature_standardise
 # From API 
 from APIHandle import pull_features
 
 
 import json
 import datetime as dt
+
+from typing import Union, Any
 
 DEBUG = True
 
@@ -61,11 +65,13 @@ def identify_healthy_data(df:pd.DataFrame):
 
 
     WINDOW = 10
-    K_STABLE = 50    # How many consecative healthy bursts we need to declare the previous datapoints as heathy stable
+    K_STABLE = 25    # How many consecative healthy bursts we need to declare the previous datapoints as heathy stable
     THRESHOLD = 0.8   # Distance Threshold - Needs to be tuned for datasets
 
     stable_counter = 0
     lock_index = None   # Identify last Index of a certain healthy range to slice dataframe - if this remains null, a suitable stable range was not yet found 
+
+    automated_distancing = False # When this is switched off, the model will be trained the first K datapoints (could be like 1000 in practice)
 
     index = 0
     # Sliding Window
@@ -83,7 +89,7 @@ def identify_healthy_data(df:pd.DataFrame):
             index+=1
             continue
 
-        distance = euclidean_distance_recent_baseline(recent, all_previous)
+        distance = euclidean_distance_recent_baseline(recent, all_previous) if automated_distancing else 0
 
         if distance < THRESHOLD:
             stable_counter += 1
@@ -103,6 +109,7 @@ def identify_healthy_data(df:pd.DataFrame):
         healthy_data = df[:lock_index]
         return healthy_data
     else:
+        print(f"Still searching for healthy data: \n WINDOW = 10 \n K_STABLE = 25 \n THRESHOLD = 0.8 \n K_Stable_Found = {stable_counter}" )
         return None
     
 
@@ -170,11 +177,15 @@ def get_reconstruction_errs(autoencoder, all_sequences, df, healthy_df):
         index=df.index[SEQUENCE_LENGTH - 1:]
     )
 
+    error_series.plot()
+
     healthy_error = error_series.loc[healthy_df.index[SEQUENCE_LENGTH-1:]]
     # Smoothing ensures that anomaly occurances persist over more than one burst (window=5)
     # Thus, good for reducing false positives
     smoothed_error = error_series.rolling(window=5, min_periods=1).mean()
 
+    # plt.legend()
+    # plt.show()
 
     mu = healthy_error.mean() # mu μ is terminology in math for mean
     sigma = healthy_error.std() # Sigma σ is terminology in math for std 
@@ -191,7 +202,10 @@ def get_reconstruction_errs(autoencoder, all_sequences, df, healthy_df):
     # Therefore, the upper limit (positive threshold that determines anomalies) is: mu + (p*sigma)
     # Formula is "Upper Control Limit" - Three-Sigma Rule (https://www.geeksforgeeks.org/maths/68-95-99-rule/)
     threshold = mu + (P * sigma)
-    first_abnormal_idx = error_series[error_series > threshold].index[0]
+    anomalies = error_series[error_series > threshold]
+    first_abnormal_idx = -1 if len(anomalies) == 0 else anomalies.index[0]
+
+    #smoothed_error.plot()
 
     return smoothed_error, threshold, first_abnormal_idx
 
@@ -200,6 +214,9 @@ def get_health_index(smoothed_error, threshold, first_abnormal_idx):
     d_signal = smoothed_error[first_abnormal_idx:] # np.maximum(smoothed_error - threshold, 0)
     d_signal[d_signal < threshold] = 0
 
+
+    d_signal.plot()
+    plt.show()
 
     # This allows the damage score to come back down when error shrink
     # If this is 1 then there is no forgetting factor (1) acts as a cumsum
@@ -232,6 +249,8 @@ def get_health_index(smoothed_error, threshold, first_abnormal_idx):
     # Exponential normalisation i think (ensures values stay within 1-0) 
     HI = np.exp(damage_scaled)
 
+    plt.plot(HI)
+
     return HI[-1], HI
 
 
@@ -247,7 +266,7 @@ def write_status(status:dict = None) -> None:
         return
 
 
-
+VERBOSE = False
 
 if __name__ == "__main__":
     # DEBUGGING
@@ -261,63 +280,46 @@ if __name__ == "__main__":
     # Degrading - degradation period has began - begin EWMA HI 
 
 
-    #print(os.listdir("./saves/models/"))
-
-    # Data collection - THIS WILL BE FROM THING SPEAK
-    features_df = pull_features()
-    #external_features_df = feature_extraction() #[:200] Can bring back into time (LIVE SAFE)
-    print("Features Successfully Collected")
+    #- Data Preparation & Collection -# - Collected from Thingspeak channel(s) (within APIHandle.py)
+    features_df:pd.DataFrame = pull_features()
+    # Get features obtained from pull_features(...) - These will be the fields stored on the ThingSpeak channel(s)
+    FEATURE_NAMES:list = features_df.columns.to_list() 
+    # Standardisation ensures features are brought into a simililar & fair range - ensures STD is 1 as discussed in methodology
+    stand_df:pd.DataFrame = feature_standardise(features_df, FEATURE_NAMES)
     
-    print(features_df)
-    #print(external_features_df)
+    autoencoder:tf.keras.Model = None
 
-    FEATURES = features_df.columns.to_list() 
-
-  
-    stand_df = feature_standardise(features_df, FEATURES)
-    healthy_df = identify_healthy_data(stand_df)
-     
-
-    # healthy_sequences, healthy_df = prepare_healthy_data(features_df)
-
-
-    # If Model has been learned
     if "live_autoencoder.keras" in os.listdir("./saves/models/"): # and "status_variables.json" in os.listdir("./saves/"):
-        print("Healthy Autoencoder found")
-        # Can begin using trained model on healthy data & status variables 
+        # Machines trained model exists on disk, can use this to continue assessing streaming data from IIoT component
         autoencoder = keras.models.load_model("./saves/models/live_autoencoder.keras")
         
-        # Status variables such as timestamp of degradation period, threshold, MSEs 
-        #smoothed_error, threshold, first_abnormal_timestamp = read_json() # Taken new datapoints from TS starting at first_abnormal_timestamp
-
-        all_sequences = get_sequences(features_df)
-        smoothed_error, threshold, first_abnormal_idx = get_reconstruction_errs(autoencoder, all_sequences, features_df, healthy_df)
-        current_HI, _ = get_health_index(smoothed_error, threshold, first_abnormal_idx)
-        print("Current HI: ", current_HI)
-        write_status({"HI":current_HI})
-
-
     else:
+        # Capture machines patterns over x amount of time to use for training
+        healthy_df:Union[pd.Series, None] = identify_healthy_data(stand_df)         
         if isinstance(healthy_df, (pd.DataFrame, pd.Series)):
+            # Ready to train
+            # Healthy sequences - populated with the machines observed patterns since first applying the sensor (defined as |HS| in methodology)
             healthy_sequences = get_sequences(healthy_df)
             autoencoder = train_model(healthy_sequences)
-        
-            all_sequences = get_sequences(features_df)
-            smoothed_error, threshold, first_abnormal_idx = get_reconstruction_errs(autoencoder, all_sequences, features_df, healthy_df)
-            current_HI, _ = get_health_index(smoothed_error, threshold, first_abnormal_idx)
-            print("Current HI: ", current_HI)
-            write_status({"HI":current_HI})
-
         else:
-            write_status({"HI":"1", "ModelStatus":"Still Learning Machines Stable Healthy Data"})
+            print("Still Capturing Machines Patterns")
+            # Else, still require more time for the model to learn the machines patterns 
+            write_status({"HI":"-", "ModelStatus":"Still Learning Machines Stable Healthy Pattterns", "DatapointsCollected": len(features_df)})
 
+    if autoencoder:
+        #- Anomaly Scroring and Health Estimation -#
+        all_sequences = get_sequences(features_df)
+        # Compute MSE_i, threshold as discussed in methodology/Phase 3/Machine Learning & HI Computation/HI Estimation
+        smoothed_error, threshold, first_abnormal_idx = get_reconstruction_errs(autoencoder, (all_sequences).astype("float32"), features_df, healthy_df)
+        
+        if VERBOSE: smoothed_error.plot()
+        
+        #- Health Index Estimation -# - Compute HI from damage scores (MSE)
+        current_HI, _ = 1 if first_abnormal_idx == -1 else get_health_index(smoothed_error, threshold, first_abnormal_idx)
+        print("Current HI: ", current_HI)
+        write_status({"HI":current_HI, "ModelStatus":"Scoring Anomalies"})
 
      
-
-
-
-
-
 
 
 
