@@ -27,7 +27,7 @@ if __name__ == "__main__":
     crit_content = []
     crit_weights = []
     cost_benefit = []
-    with open("MCDM\\Specification_Matrix.csv", "r") as f:
+    with open("Specification_Matrix.csv", "r") as f:
         lines = f.readlines()
         #meta_content.append(lines.pop(0))
         for line in lines:
@@ -45,7 +45,6 @@ if __name__ == "__main__":
                 cost_benefit.append(cost_benefit_val)
                 crit_content.append((line_meta, [Decimal(v) for v in candidate_values]))
 
-            
 
     # Normalise Weights (weights sum must == 1)
     weights_sum:Decimal = sum(crit_weights)
@@ -90,7 +89,6 @@ if __name__ == "__main__":
     candidates_negative_distance = [[i, Decimal()] for i in meta_content[0][1]]
 
     for i, criteria in enumerate(weighted_normalised_matrix):
-        #candidate_scores = criteria[1]
         for j in range(len(candidate_scores)):          
             candidates_positive_distance[j][1] += Decimal((criteria[1][j] - best_scores[j])**2)
             candidates_negative_distance[j][1] += Decimal((criteria[1][j] - worst_scores[j])**2)
