@@ -1,4 +1,4 @@
-# Abstract version of ML component - Insantiate instance of AssetComputer
+# Abstract version of ML component - Instantiate instance of AssetComputer
 # For tracking mulitple assets
 
 
@@ -158,14 +158,21 @@ class AssetComputer:
         else:
             # Need to train model (if enough dps)
             # 1.1 Locate healthy data for training
-            self.__training_data = self.__training_data_collection()
+            self.__training_data = self.__training_data_collection()   
+            
             
             # If Training Complete
             if isinstance(self.__training_data, pandas.DataFrame):
                 # 1.1.2 Save training info (use final index to slice data from end of training period onwards)
                 Path(CAHCED_MODEL_INFO_PATH).parent.mkdir(parents=True, exist_ok=True)
+              
                 with open(CAHCED_MODEL_INFO_PATH, "w") as f:
-                    self.__training_info = {"TrainingEndIdx": str(self.__training_data.index[SEQUENCE_LEN-1])}
+                    self.__training_info = {
+                        "TrainingEndIdx": str(self.__training_data.index[SEQUENCE_LEN-1]),
+                        "TrainingStartIdx": str(self.__training_data.index[0]),
+                        "DPsLength":len(self.__training_data),
+                        "RawDPs":[{str(row[0]): row[1].to_dict()} for row in self.__training_data.iterrows()]
+                        }
                     json.dump(self.__training_info, f); f.close()
 
                 # 1.2 Sequence training data
@@ -201,19 +208,28 @@ class AssetComputer:
 
 
     def __training_data_collection(self) -> Union[pandas.DataFrame, None]:
+        """ 
+        Notes - Need to study machinery, some machines can operate very differently, or unusal events can occur unexpectedly during training period, ruining the trained autoencoder 
+        Possible future work:
+            -   LLM for data enrichment - supply meta data of environment, usage/workload during ML training to cater features, some preprocessing maybe (removing unusual datapoints) 
+                for gathering more accurate & dynamic training material
+
+        """
+
+
         def __euclidean_distance_recent_baseline(recent, all_previous):
             mu_recent = np.mean(recent, axis=0)
             mu_baseline = np.mean(all_previous, axis=0)
             return np.linalg.norm(mu_recent - mu_baseline)
 
         WINDOW = 10
-        K_STABLE = 25    # How many consecative healthy bursts we need to declare the previous datapoints as heathy stable
-        THRESHOLD = 0.4   # Distance Threshold - Needs to be tuned for datasets
+        K_STABLE = 50    # How many consecative healthy bursts we need to declare the previous datapoints as heathy stable
+        THRESHOLD = 0.7   # Distance Threshold - Needs to be tuned for datasets
 
         stable_counter = 0
         lock_index = None   # Identify last Index of a certain healthy range to slice dataframe - if this remains null, a suitable stable range was not yet found 
 
-        automated_distancing = False # When this is switched off, the model will be trained the first K datapoints (could be like 1000 in practice)
+        automated_distancing = True # When this is switched off, the model will be trained the first K datapoints (could be like 1000 in practice)
 
         index = 0
         # Sliding Window
@@ -253,13 +269,41 @@ class AssetComputer:
         return np.array(seq_blocks)
 
     def __preprocess(self) -> pandas.DataFrame:
-        
-        # 1. Standardise features (Using blackboxed Sklearn)
+        # Beginning to consider machines uptimes - timestream is not perfectly 10min intervals 
+        # as the machine isn't always running, or the connectivity is prevented.
+
+        # One nice strategy to try is slicing the time-series data into "sessions".  
+
+        # 1. Fill in missing dps (when machine is off) with a windowed average roughly around that day/time  
+        FILL_MISSING = False
+        if FILL_MISSING:
+            self.__raw_features_df.index = pandas.to_datetime(self.__raw_features_df.index)
+            self.__raw_features_df.index = self.__raw_features_df.index.floor("10min")
+            self.__raw_features_df = self.__raw_features_df.groupby(self.__raw_features_df.index).mean()
+
+            resampled_df = self.__raw_features_df.resample("10min").asfreq()
+            rolling_df = resampled_df.rolling(window=6, min_periods=1).mean()
+            filled_avg_df = rolling_df.ffill()
+
+            print(f"Raw:\n{self.__raw_features_df}")
+            
+            print(f"Resampled:\n{filled_avg_df}")
+            print(type(filled_avg_df.index))
+
+        # 1. Group uptimes into sessions (when machine is off for extended period, session elapses and new sesh begins on bootup)
+        time_diffs = self.__raw_features_df.index.to_series().diff()
+        # If there is a gap larger then 30 mins, (missed 3 intervals) then this session is over
+        session_mask = time_diffs > pandas.Timedelta("30min")
+        self.__raw_features_df["session_id"] = session_mask.cumsum()
+
+
+        # 2. Standardise features (Using blackboxed Sklearn)
         # Scalar must only take values of features (not time column) - Can check shape of self.raw_features_df.values, which should be n where n is amount of features being captured
         scaled_features = StandardScaler().fit_transform(self.__raw_features_df.values)
         scaled_features_df = pandas.DataFrame(scaled_features, 
                                  columns=self.__raw_features_df.columns.to_list(),
                                   index=self.__raw_features_df.index)
+        
         return scaled_features_df
         
 
@@ -268,6 +312,7 @@ class AssetComputer:
         """ Get MSE (reconstruction errors) """
         reconstructions = self.trained_weights.predict(self.__sequenced_dps)
         MSE = np.mean((self.__sequenced_dps - reconstructions)**2, axis=(1,2))
+
         return pandas.Series(MSE, index=self.__raw_features_df.index[SEQUENCE_LEN - 1:])
 
 
@@ -319,6 +364,7 @@ class AssetComputer:
         # 3. Fitting scores to 100-0 - Using damages as negated exponents on eulers const 
         damage = -damage
         damage_scaled = damage / damage.quantile(.95)
+
         return np.exp(damage_scaled)
 
 
@@ -329,16 +375,53 @@ class AssetComputer:
 
 
     def plot(self) -> None:
-        plt.plot(self.insights["HI_dps"])
-        plt.title(f"{self.ASSET_NAME} HI")
-        plt.xlabel("Time")
-        plt.ylabel("Health (%)")
+        SHOW_MSE: bool = True # For debugging inf issue with larger dataset
 
+        fig, ax = plt.subplots(1,2, figsize=(15,6))
+
+
+
+
+        # Training Data:
+        training_data_used:pandas.DataFrame = self.processed_features_df.loc[self.__training_info["TrainingStartIdx"]:self.__training_info["TrainingEndIdx"]]
+        ax[0].plot(training_data_used, label=training_data_used.columns)
+        ax[0].set_title(f"{self.ASSET_NAME} - Training Data Used")
+        ax[0].set_xlabel("Time")
+        ax[0].set_ylabel("Health (%)")
+        ax[0].tick_params(axis="x", rotation=45)
+        
+
+        ax[1].plot(self.processed_features_df, label=self.processed_features_df.columns)
+        ax[1].set_title(f"{self.ASSET_NAME} - All Data")
+        ax[1].set_xlabel("Time")
+        ax[1].set_ylabel("Health (%)")
+        ax[1].tick_params(axis="x", rotation=45)
+
+        training_start_idx = training_data_used.index[0]
+        training_end_idx = training_data_used.index[-1]
+        print(training_start_idx)
+        print(type(training_start_idx))
+        
+        ax[1].axvline(x=training_start_idx, color='green', linestyle='--', alpha=0.7)#, linewidth=4) 
+        ax[1].axvline(x=training_end_idx, color='green', linestyle='--', alpha=0.7)#, linewidth=4) 
+        
+
+
+        test:pandas.Series = self.insights["HI_dps"][1:]
+        # print(f"HI:\n{test}")
+        # print(f"\nMSE:\n{self.__MSE}")
+        print(f"Training Data:{self.processed_features_df}")
+
+        # plt.plot(self.__MSE, label="MSE")
+
+
+        plt.legend()
+        plt.tight_layout()
         plt.show()
 
 
 
 if __name__ == "__main__":
     pillar_drill_1 = AssetComputer("PD1")
-    print(pillar_drill_1.insights)
+    print("\n\n")
     pillar_drill_1.plot()
