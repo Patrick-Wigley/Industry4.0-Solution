@@ -1,4 +1,9 @@
+# ML/ & DAQ/
+SECRETS*
+
+# ML/
 v
 Backup/
 Datasets/
-SECRETS*
+cache/
+__pycache__
