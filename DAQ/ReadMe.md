@@ -1,6 +1,6 @@
 ## Data Acquisition
 
-<br><div align="center"><img style="border-radius:1rem; display:block; width:500" src="../Media/Current DAQ Prototype.png">
+<br><div align="center"><img style="border-radius:1rem; display:block; width:500" src="../Media/Current DAQ Prototype.png"><br>
 <i> Figure 1. Current IoT Prototype</i></div>
 
 
@@ -47,10 +47,4 @@ The following features are tested (subset is used). Found throughout relevant li
 | Spectral Spread | $$SS = \sqrt{\frac{\sum_{n=1}^{F}{(f_n-SC)^2\ *\ \|M_n\|}}{\sum_{n=1}^{F}\ \|M_n\|}}$$ |
 | Spectral Energy | $$SE = \sum_{n=1}^{F}\|M_n\|^2$$ |
 | Spectral Peak Frequency | $$SPF = f_{argmax\ \|M\ (f_n)\|\ }$$ |
-| Spectral Entropy | 
-
-$$P_n = \frac{\|M_n\|}{\sum_{n=1}^{F}{|M_n|}}$$
-
-$$ {PSafe}_n=P_n>\ 0 $$
-
-$$SEN = \frac{-\sum_{n=1}^{F}{{PSafe}n\ * \ \log_2({PSafe}_n\ )}}{{log}_2\ (F)}$$
+| Spectral Entropy | $$P_n = \frac{\|M_n\|}{\sum_{n=1}^{F}{|M_n|}}$$ $$ {PSafe}_n=P_n>\ 0 $$ $$SEN = \frac{-\sum_{n=1}^{F}{{PSafe}n\ * \ \log_2({PSafe}_n\ )}}{{log}_2\ (F)}$$ |

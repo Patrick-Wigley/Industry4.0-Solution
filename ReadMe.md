@@ -1,6 +1,6 @@
 # Homemade Asset Conditional Based Monitoring (CbM) Solution 📈
 
-<br><div align="center"><img style="border-radius:1rem; display:block; width:500" src="media/Digital Twin.jpg">
+<br><div align="center"><img style="border-radius:1rem; display:block; width:500" src="./Media/Digital Twin.jpg">
 <i>CbM Solution inside Digital Twin</i></div>
 
 ## Links
